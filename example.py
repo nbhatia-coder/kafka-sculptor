@@ -1,19 +1,38 @@
-# main.py
-
 import logging
 import json
 from typing import Generator
-
+from pydantic import BaseSettings, BaseModel
 from sqlmodel import Session, SQLModel, Field, create_engine
-from pydantic import BaseModel
-
-from app.consumer import KafkaConsumerService, HandlerResponse
-
 from contextlib import contextmanager
+from app.consumer import KafkaConsumerService, HandlerResponse
 
 # Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Set desired log level
+logger.setLevel(logging.DEBUG)
+
+# Define Pydantic settings for configuration
+class Settings(BaseSettings):
+    # Database settings
+    database_url: str
+
+    # Kafka settings
+    bootstrap_servers: str
+    security_protocol: str
+    sasl_mechanism: str
+    sasl_username: str
+    sasl_password: str
+    group_id: str
+    auto_offset_reset: str
+    enable_auto_commit: bool
+    session_timeout_ms: int
+    heartbeat_interval_ms: int
+    max_poll_interval_ms: int
+
+    class Config:
+        env_file = ".env"  # Automatically load environment variables from .env file
+
+# Load settings
+settings = Settings()
 
 # Define your database models
 class VendorCreate(BaseModel):
@@ -39,8 +58,8 @@ def create_vendor(session: Session, vendor: VendorCreate) -> VendorRead:
     new_vendor = Vendor(
         erp_code=vendor.erp_code,
         name=vendor.name,
-        created_at="2024-04-27T12:35:00Z",  # Replace with actual timestamp logic
-        modified_at="2024-04-27T12:35:00Z"  # Replace with actual timestamp logic
+        created_at="2024-04-27T12:35:00Z",
+        modified_at="2024-04-27T12:35:00Z"
     )
     session.add(new_vendor)
     session.commit()
@@ -55,8 +74,7 @@ def create_vendor(session: Session, vendor: VendorCreate) -> VendorRead:
 
 # Define the session factory
 def get_session() -> Generator[Session, None, None]:
-    DATABASE_URL = "sqlite:///./test.db"  # Replace with your actual DB URL
-    engine = create_engine(DATABASE_URL, echo=True)
+    engine = create_engine(settings.database_url, echo=True)
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
@@ -72,17 +90,17 @@ def session_context():
 
 # Initialize the KafkaConsumerService
 kafka_config = {
-    'bootstrap.servers': '',
-    'security.protocol': 'SASL_SSL',
-    'sasl.mechanism': 'PLAIN',
-    'sasl.username': '',
-    'sasl.password': '',
-    'group.id': 'test_ap_vendors',
-    'auto.offset.reset': 'earliest',
-    'enable.auto.commit': False,
-    'session.timeout.ms': 60000,
-    'heartbeat.interval.ms': 20000,
-    'max.poll.interval.ms': 300000
+    'bootstrap.servers': settings.bootstrap_servers,
+    'security.protocol': settings.security_protocol,
+    'sasl.mechanism': settings.sasl_mechanism,
+    'sasl.username': settings.sasl_username,
+    'sasl.password': settings.sasl_password,
+    'group.id': settings.group_id,
+    'auto.offset.reset': settings.auto_offset_reset,
+    'enable.auto.commit': settings.enable_auto_commit,
+    'session.timeout.ms': settings.session_timeout_ms,
+    'heartbeat.interval.ms': settings.heartbeat_interval_ms,
+    'max.poll.interval.ms': settings.max_poll_interval_ms,
 }
 
 consumer_service = KafkaConsumerService(
@@ -119,7 +137,6 @@ consumer_service.register_handlers('ap_invoice', handle_ap_invoice)
 # Start the consumer
 if __name__ == "__main__":
     try:
-        print_hello()
         consumer_service.run()
         logger.info("Kafka consumer started. Press Ctrl+C to stop.")
         while True:
