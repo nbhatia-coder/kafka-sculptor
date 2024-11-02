@@ -7,12 +7,12 @@ from typing import Generator
 from sqlmodel import Session, SQLModel, Field, create_engine
 from pydantic import BaseModel
 
-from app.consumer import KafkaConsumerService
+from app.consumer import KafkaConsumerService, HandlerResponse
 
 from contextlib import contextmanager
 
 # Configure logging
-logger = logging.getLogger("kafka_clients.examples.example_app")
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Set desired log level
 
 # Define your database models
@@ -72,11 +72,11 @@ def session_context():
 
 # Initialize the KafkaConsumerService
 kafka_config = {
-    'bootstrap.servers': 'pkc-l7pr2.ap-south-1.aws.confluent.cloud:9092',
+    'bootstrap.servers': '',
     'security.protocol': 'SASL_SSL',
     'sasl.mechanism': 'PLAIN',
-    'sasl.username': 'SOUHJ4FF6DLRVVIU',
-    'sasl.password': 'fQ1GrfduCanFTdBUy6CrhobO9uElpvg7Dw7GVxlxkfpOwiDbj24gVTd4lQwvy50m',
+    'sasl.username': '',
+    'sasl.password': '',
     'group.id': 'test_ap_vendors',
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
@@ -91,7 +91,7 @@ consumer_service = KafkaConsumerService(
 )
 
 # Define handler functions
-def handle_ap_invoice(message: bytes, db_session: Session):
+def handle_ap_invoice(message: bytes, db_session: Session) -> HandlerResponse:
     try:
         logger.debug(f"Attempting to create a new vendor with data: {message}")
         data = json.loads(message)
@@ -100,18 +100,18 @@ def handle_ap_invoice(message: bytes, db_session: Session):
 
         if not erp_code or not name:
             logger.warning("Missing 'erp_code' or 'name' in message.")
-            return
+            return HandlerResponse(status="FAILURE", detail="Invalid data")
 
         vendor_create = VendorCreate(erp_code=erp_code, name=name)
         vendor_read = create_vendor(session=db_session, vendor=vendor_create)
         logger.info(f"Vendor created successfully with ERP Code: {vendor_read.erp_code}")
-        return
+        return HandlerResponse(status="SUCCESS")
     except json.JSONDecodeError:
         logger.error("Failed to decode JSON message.")
-        return
+        return HandlerResponse(status="FAILURE", detail="JSON decode error")
     except Exception as e:
         logger.error(f"Error in handler: {e}")
-        return
+        return HandlerResponse(status="FAILURE", detail=str(e))
 
 # Register the handler
 consumer_service.register_handlers('ap_invoice', handle_ap_invoice)
@@ -119,6 +119,7 @@ consumer_service.register_handlers('ap_invoice', handle_ap_invoice)
 # Start the consumer
 if __name__ == "__main__":
     try:
+        print_hello()
         consumer_service.run()
         logger.info("Kafka consumer started. Press Ctrl+C to stop.")
         while True:
